@@ -13,8 +13,9 @@ class Optimizer:
         self.embedder = Embedder(game)
         self.game.register_embedder(self.embedder)
         self.embedder.calculate_embeddings()
-        weights = {"blank": 1, "opposite": 2, "black": 5}
-        self.weights = {k: v / sum(weights.values()) for k, v in weights.items()}
+        weights = {"blank": 1.0, "opposite": 2.0, "black": 5.0}
+        total_weight = sum(weights.values())
+        self.normalized_weights = {k: v / total_weight for k, v in weights.items()}
 
     def _combo_scores(
         self,
@@ -126,26 +127,26 @@ class Optimizer:
 
         blank = self.embedder.get_blank()
         black = self.embedder.get_black()
-        vocabulary = self.embedder.get_vocab()
-
-        attract_sims = vocabulary @ attract.T
+        vocabulary_embeddings = self.embedder.get_vocab()
 
         repel_vecs = np.concatenate([blank, opposite, black], axis=0)
         repel_weights = np.concatenate([
-            np.full(len(blank), self.weights["blank"]),
-            np.full(len(opposite), self.weights["opposite"]),
-            np.full(len(black), self.weights["black"]),
+            np.full(len(blank), self.normalized_weights["blank"]),
+            np.full(len(opposite), self.normalized_weights["opposite"]),
+            np.full(len(black), self.normalized_weights["black"]),
         ])
         repel_centroid = np.average(repel_vecs, axis=0, weights=repel_weights)
 
-        blank_sims = vocabulary @ blank.T
-        opposite_sims = vocabulary @ opposite.T
-        black_sims = vocabulary @ black.T
+        attract_sims = vocabulary_embeddings @ attract.T
+        blank_sims = vocabulary_embeddings @ blank.T
+        opposite_sims = vocabulary_embeddings @ opposite.T
+        black_sims = vocabulary_embeddings @ black.T
+
         repel_sims = np.concatenate(
             [
-                blank_sims * self.weights["blank"],
-                opposite_sims * self.weights["opposite"],
-                black_sims * self.weights["black"],
+                blank_sims * self.normalized_weights["blank"],
+                opposite_sims * self.normalized_weights["opposite"],
+                black_sims * self.normalized_weights["black"],
             ],
             axis=1,
         )
@@ -153,7 +154,7 @@ class Optimizer:
 
         selected_indices = self.select_attract_words(
             attract,
-            vocabulary,
+            vocabulary_embeddings,
             attract_sims,
             risk_scores,
             repel_centroid,
@@ -165,7 +166,7 @@ class Optimizer:
         print(f"Optimizing prompt for {n} words: {selected_words}")
 
         clue_scores = self.calculate_clue_scores(
-            vocabulary=vocabulary,
+            vocabulary=vocabulary_embeddings,
             attract=attract,
             selected_combo=selected_indices,
             mode=mode,
@@ -174,5 +175,39 @@ class Optimizer:
             risk_scores=risk_scores,
         )
 
-        best_scores = np.argsort(-clue_scores)[:k]
-        return [self.game.vocabulary[idx] for idx in best_scores]
+        best_scores_idx = np.argsort(-clue_scores)
+        return self.filter_and_select_clues(k, best_scores_idx)
+
+    def filter_and_select_clues(self, k, best_scores_idx):
+        board_words = [
+            w.lower()
+            for w in self.game.blue + self.game.red + self.game.blank + self.game.black
+        ]
+        final_clues = []
+        for idx in best_scores_idx:
+            clue = self.game.vocabulary[idx]
+            clue_lower = clue.lower()
+
+            if clue_lower in board_words:
+                continue
+
+            is_invalid = False
+            for board_word in board_words:
+                if clue_lower in board_word or board_word in clue_lower:
+                    is_invalid = True
+                    break
+            if is_invalid:
+                continue
+
+            is_dup = False
+            for existing in final_clues:
+                if clue_lower in existing or existing in clue_lower:
+                    is_dup = True
+                    break
+            if is_dup:
+                continue
+            final_clues.append(clue)
+            if len(final_clues) >= k:
+                break
+
+        return final_clues

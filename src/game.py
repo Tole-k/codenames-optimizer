@@ -17,7 +17,7 @@ class Game:
         self.blank = blank
         self.black = black
         self.language = language
-        self.vocabulary = top_n_list(language, 100000)
+        self.vocabulary = top_n_list(language, 20000)
         self.embedder = None
 
     def register_embedder(self, embedder: Embedder):
