@@ -7,10 +7,13 @@ if TYPE_CHECKING:
 
 
 class Game:
-    model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-
     def __init__(
-        self, blue: list[str], red: list[str], blank: list[str], black: list[str], language:str
+        self,
+        blue: list[str],
+        red: list[str],
+        blank: list[str],
+        black: list[str],
+        language: str,
     ) -> None:
         self.blue = blue
         self.red = red
